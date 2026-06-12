@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentSpend — AI Cost Monitor</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg: #0a0e14;
+  --surface: #131721;
+  --border: #1e2430;
+  --text: #c8ccd4;
+  --muted: #6c7280;
+  --accent: #39bae6;
+  --danger: #f26d78;
+  --warn: #ffb454;
+  --green: #7fd962;
+  --purple: #d2a6ff;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: 'Inter', -apple-system, sans-serif;
+  background: var(--bg); color: var(--text);
+  min-height: 100vh; line-height: 1.5;
+}
+.container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 20px 0; border-bottom: 1px solid var(--border); margin-bottom: 24px;
+}
+header h1 { font-size: 24px; font-weight: 700; color: #fff; }
+header h1 span { color: var(--accent); }
+.header-actions { display: flex; gap: 12px; }
+
+.btn {
+  padding: 8px 16px; border-radius: 6px; border: none;
+  font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px;
+}
+.btn-primary { background: var(--accent); color: #0a0e14; }
+.btn-primary:hover { background: #5cccf0; }
+.btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+.btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+.btn-danger { background: transparent; border: 1px solid var(--danger); color: var(--danger); }
+.btn-danger:hover { background: rgba(242,109,120,0.1); }
+.btn-sm { padding: 4px 10px; font-size: 11px; }
+
+.metrics {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px; margin-bottom: 24px;
+}
+.metric-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 20px;
+}
+.metric-card .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+.metric-card .value { font-size: 28px; font-weight: 700; color: #fff; }
+.metric-card .sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.metric-card .trend-up { color: var(--danger); }
+.metric-card .trend-down { color: var(--green); }
+
+.panels {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px;
+}
+.panel {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 20px;
+}
+.panel h3 { font-size: 14px; color: #fff; margin-bottom: 16px; font-weight: 600; }
+.panel-full { grid-column: 1 / -1; }
+
+.chart-wrap { position: relative; height: 280px; }
+.chart-wrap canvas { width: 100% !important; }
+
+.project-list { display: flex; flex-direction: column; gap: 8px; }
+.project-item {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px; background: rgba(255,255,255,0.02);
+  border: 1px solid var(--border); border-radius: 8px;
+}
+.project-info .name { font-weight: 600; color: #fff; font-size: 14px; }
+.project-info .models { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.project-cost { text-align: right; }
+.project-cost .amount { font-weight: 700; font-size: 16px; }
+.project-cost .sessions { font-size: 11px; color: var(--muted); }
+.cost-bar {
+  height: 4px; background: var(--border); border-radius: 2px; margin-top: 6px;
+  overflow: hidden;
+}
+.cost-bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s; }
+
+.alerts { display: flex; flex-direction: column; gap: 6px; }
+.alert-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px; border-radius: 6px; font-size: 13px;
+}
+.alert-warn { background: rgba(255,180,84,0.1); border: 1px solid rgba(255,180,84,0.3); color: var(--warn); }
+.alert-danger { background: rgba(242,109,120,0.1); border: 1px solid rgba(242,109,120,0.3); color: var(--danger); }
+.alert-info { background: rgba(57,186,230,0.1); border: 1px solid rgba(57,186,230,0.3); color: var(--accent); }
+
+.modal-overlay {
+  display: none; position: fixed; top:0; left:0; width:100%; height:100%;
+  background: rgba(0,0,0,0.7); z-index: 100;
+  justify-content: center; align-items: center;
+}
+.modal-overlay.active { display: flex; }
+.modal {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 24px; width: 440px; max-width: 90vw;
+}
+.modal h3 { color: #fff; margin-bottom: 16px; }
+.modal label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; margin-top: 12px; }
+.modal input, .modal select {
+  width: 100%; padding: 10px 12px; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text); font-size: 14px; outline: none;
+}
+.modal input:focus, .modal select:focus { border-color: var(--accent); }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+.badge-accent { background: rgba(57,186,230,0.15); color: var(--accent); }
+.badge-purple { background: rgba(210,166,255,0.15); color: var(--purple); }
+.badge-green { background: rgba(127,217,98,0.15); color: var(--green); }
+
+footer { text-align: center; padding: 40px 0; color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); margin-top: 32px; }
+
+@media (max-width: 768px) {
+  .panels { grid-template-columns: 1fr; }
+  .metrics { grid-template-columns: 1fr 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <h1>⚡ Agent<span>Spend</span></h1>
+    <div class="header-actions">
+      <button class="btn btn-outline" onclick="exportData()">📤 Export</button>
+      <button class="btn btn-outline" onclick="resetData()">🗑 Reset</button>
+      <button class="btn btn-primary" onclick="openAddModal()">+ Add Session</button>
+    </div>
+  </header>
+
+  <div class="metrics" id="metrics"></div>
+
+  <div class="panels">
+    <div class="panel">
+      <h3>📊 Cost Over Time (7 days)</h3>
+      <div class="chart-wrap"><canvas id="costChart"></canvas></div>
+    </div>
+    <div class="panel">
+      <h3>🤖 Cost by Model</h3>
+      <div class="chart-wrap"><canvas id="modelChart"></canvas></div>
+    </div>
+  </div>
+
+  <div class="panels">
+    <div class="panel panel-full">
+      <h3>📁 Projects</h3>
+      <div class="project-list" id="projectList"></div>
+    </div>
+  </div>
+
+  <div class="panels">
+    <div class="panel">
+      <h3>⚠️ Alerts</h3>
+      <div class="alerts" id="alerts"></div>
+    </div>
+    <div class="panel">
+      <h3>💡 Savings Tips</h3>
+      <div class="alerts">
+        <div class="alert-item alert-info">💬 Use smaller models for simple tasks (Haiku vs Opus)</div>
+        <div class="alert-item alert-info">📦 Batch API calls to reduce per-request overhead</div>
+        <div class="alert-item alert-info">🔄 Cache repeated queries — prompt caching saves 90%</div>
+        <div class="alert-item alert-info">⏱ Set max_turns limits to prevent runaway loops</div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    AgentSpend v1.0 — AI Cost Monitor · Data stored locally · No tracking
+  </footer>
+</div>
+
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <h3>📝 Add AI Session</h3>
+    <label>Project Name</label>
+    <input type="text" id="projName" placeholder="e.g. my-saas-backend" list="projList">
+    <datalist id="projList"></datalist>
+    <label>Model</label>
+    <select id="modelName">
+      <option value="claude-opus-4.8">Claude Opus 4.8 ($15/$75)</option>
+      <option value="claude-sonnet-4.6">Claude Sonnet 4.6 ($3/$15)</option>
+      <option value="claude-haiku-4.5">Claude Haiku 4.5 ($1/$5)</option>
+      <option value="claude-fable-5">Claude Fable 5 ($5/$25)</option>
+      <option value="gpt-5.4">GPT-5.4 ($2.5/$15)</option>
+      <option value="gpt-5.3-codex">GPT-5.3 Codex ($1.75/$14)</option>
+      <option value="gpt-5-mini">GPT-5 Mini ($0.25/$2)</option>
+      <option value="gemini-3-pro">Gemini 3 Pro ($2/$12)</option>
+      <option value="gemini-2.5-flash">Gemini 2.5 Flash ($0.3/$2.5)</option>
+      <option value="deepseek-v4">DeepSeek V4</option>
+      <option value="custom">Custom...</option>
+    </select>
+    <label>Input Tokens</label>
+    <input type="number" id="inputTokens" placeholder="e.g. 5000" min="0">
+    <label>Output Tokens</label>
+    <input type="number" id="outputTokens" placeholder="e.g. 1500" min="0">
+    <label>Cost ($) <span style="color:var(--muted);font-weight:400">— or auto-calculate</span></label>
+    <input type="number" id="costManual" placeholder="Auto" step="0.0001" min="0">
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="addSession()">Add Session</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const MODEL_PRICES = {
+  'claude-opus-4.8':   { input: 15.0/1e6,  output: 75.0/1e6 },
+  'claude-sonnet-4.6': { input: 3.0/1e6,   output: 15.0/1e6 },
+  'claude-haiku-4.5':  { input: 1.0/1e6,   output: 5.0/1e6 },
+  'claude-fable-5':    { input: 5.0/1e6,   output: 25.0/1e6 },
+  'gpt-5.4':           { input: 2.5/1e6,   output: 15.0/1e6 },
+  'gpt-5.3-codex':     { input: 1.75/1e6,  output: 14.0/1e6 },
+  'gpt-5-mini':        { input: 0.25/1e6,  output: 2.0/1e6 },
+  'gemini-3-pro':      { input: 2.0/1e6,   output: 12.0/1e6 },
+  'gemini-2.5-flash':  { input: 0.3/1e6,   output: 2.5/1e6 },
+};
+
+let costChart, modelChart;
+
+function loadData() {
+  const raw = localStorage.getItem('agentspend_data');
+  return raw ? JSON.parse(raw) : { sessions: [], budget: 50 };
+}
+
+function saveData(data) {
+  localStorage.setItem('agentspend_data', JSON.stringify(data));
+}
+
+function fmtCurrency(n) {
+  if (n >= 1) return '$' + n.toFixed(2);
+  if (n >= 0.01) return '$' + n.toFixed(4);
+  return '$' + n.toFixed(6);
+}
+
+function renderAll() {
+  const data = loadData();
+  renderMetrics(data);
+  renderCharts(data);
+  renderProjects(data);
+  renderAlerts(data);
+}
+
+function renderMetrics(data) {
+  const sessions = data.sessions;
+  const totalCost = sessions.reduce((s, x) => s + x.cost, 0);
+  const today = new Date().toISOString().slice(0,10);
+  const todayCost = sessions.filter(s => s.date === today).reduce((s, x) => s + x.cost, 0);
+  const totalTokens = sessions.reduce((s, x) => s + x.inputTokens + x.outputTokens, 0);
+  const sessionCount = sessions.length;
+  const budgetPct = data.budget > 0 ? (totalCost / data.budget * 100) : 0;
+  const weekAgo = new Date(Date.now() - 7*86400000).toISOString().slice(0,10);
+  const weekCost = sessions.filter(s => s.date >= weekAgo).reduce((s, x) => s + x.cost, 0);
+
+  document.getElementById('metrics').innerHTML = `
+    <div class="metric-card">
+      <div class="label">Total Spent</div>
+      <div class="value">${fmtCurrency(totalCost)}</div>
+      <div class="sub">${sessionCount} sessions</div>
+    </div>
+    <div class="metric-card">
+      <div class="label">Today</div>
+      <div class="value">${fmtCurrency(todayCost)}</div>
+      <div class="sub">${new Date().toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'})}</div>
+    </div>
+    <div class="metric-card">
+      <div class="label">7-Day Spend</div>
+      <div class="value">${fmtCurrency(weekCost)}</div>
+      <div class="sub">${fmtCurrency(weekCost/7)} avg/day</div>
+    </div>
+    <div class="metric-card">
+      <div class="label">Budget</div>
+      <div class="value">${fmtCurrency(totalCost)} / ${fmtCurrency(data.budget)}</div>
+      <div class="sub" style="color:${budgetPct>80?'var(--danger)':budgetPct>50?'var(--warn)':'var(--muted)'}">${budgetPct.toFixed(1)}% used</div>
+      <div class="cost-bar"><div class="cost-bar-fill" style="width:${Math.min(budgetPct,100)}%;background:${budgetPct>80?'var(--danger)':budgetPct>50?'var(--warn)':'var(--accent)'}"></div></div>
+    </div>
+  `;
+}
+
+function renderCharts(data) {
+  // Cost over time (last 7 days)
+  const days = [];
+  const costs = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(Date.now() - i*86400000).toISOString().slice(0,10);
+    days.push(new Date(Date.now() - i*86400000).toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'}));
+    costs.push(data.sessions.filter(s => s.date === d).reduce((s, x) => s + x.cost, 0));
+  }
+
+  const ctx1 = document.getElementById('costChart').getContext('2d');
+  if (costChart) costChart.destroy();
+  costChart = new Chart(ctx1, {
+    type: 'bar',
+    data: {
+      labels: days,
+      datasets: [{
+        label: 'Daily Cost',
+        data: costs,
+        backgroundColor: costs.map(c => c > 1 ? 'rgba(242,109,120,0.6)' : 'rgba(57,186,230,0.5)'),
+        borderColor: costs.map(c => c > 1 ? '#f26d78' : '#39bae6'),
+        borderWidth: 1,
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#6c7280', font: { size: 10 }, maxRotation: 45 }, grid: { display: false } },
+        y: { ticks: { color: '#6c7280', callback: v => '$'+v.toFixed(2) }, grid: { color: '#1e2430' } }
+      }
+    }
+  });
+
+  // Cost by model
+  const modelMap = {};
+  data.sessions.forEach(s => {
+    modelMap[s.model] = (modelMap[s.model] || 0) + s.cost;
+  });
+  const modelEntries = Object.entries(modelMap).sort((a,b) => b[1] - a[1]);
+  const colors = ['#39bae6','#d2a6ff','#7fd962','#ffb454','#f26d78','#5cccf0','#b88aee'];
+
+  const ctx2 = document.getElementById('modelChart').getContext('2d');
+  if (modelChart) modelChart.destroy();
+  modelChart = new Chart(ctx2, {
+    type: 'doughnut',
+    data: {
+      labels: modelEntries.map(e => e[0]),
+      datasets: [{
+        data: modelEntries.map(e => e[1]),
+        backgroundColor: modelEntries.map((_,i) => colors[i % colors.length] + 'cc'),
+        borderColor: '#131721',
+        borderWidth: 2,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'right', labels: { color: '#c8ccd4', font: { size: 11 }, padding: 12, usePointStyle: true } }
+      }
+    }
+  });
+}
+
+function renderProjects(data) {
+  const projMap = {};
+  data.sessions.forEach(s => {
+    if (!projMap[s.project]) projMap[s.project] = { cost: 0, sessions: 0, models: new Set() };
+    projMap[s.project].cost += s.cost;
+    projMap[s.project].sessions++;
+    projMap[s.project].models.add(s.model);
+  });
+
+  const maxCost = Math.max(1, ...Object.values(projMap).map(p => p.cost));
+  const projects = Object.entries(projMap).sort((a,b) => b[1].cost - a[1].cost);
+
+  document.getElementById('projectList').innerHTML = projects.length === 0
+    ? '<div style="text-align:center;color:var(--muted);padding:20px;">No projects yet — add a session to get started</div>'
+    : projects.map(([name, p]) => `
+      <div class="project-item">
+        <div class="project-info">
+          <div class="name">${escHtml(name)}</div>
+          <div class="models">${[...p.models].map(m => `<span class="badge badge-accent">${escHtml(m)}</span>`).join(' ')}</div>
+        </div>
+        <div class="project-cost">
+          <div class="amount">${fmtCurrency(p.cost)}</div>
+          <div class="sessions">${p.sessions} sessions</div>
+          <div class="cost-bar"><div class="cost-bar-fill" style="width:${(p.cost/maxCost*100).toFixed(0)}%;background:var(--accent)"></div></div>
+        </div>
+      </div>
+    `).join('');
+}
+
+function renderAlerts(data) {
+  const alerts = [];
+  const totalCost = data.sessions.reduce((s, x) => s + x.cost, 0);
+  const budgetPct = data.budget > 0 ? (totalCost / data.budget * 100) : 0;
+
+  if (budgetPct >= 90) alerts.push({ type: 'danger', msg: `🚨 Budget at ${budgetPct.toFixed(0)}%! Halt all non-essential API calls immediately.` });
+  else if (budgetPct >= 70) alerts.push({ type: 'warn', msg: `⚠️ Budget at ${budgetPct.toFixed(0)}% — consider switching to smaller models.` });
+  else if (budgetPct >= 50) alerts.push({ type: 'info', msg: `📊 Halfway through budget (${budgetPct.toFixed(0)}%). Monitor closely.` });
+
+  // Check for expensive single sessions
+  const today = new Date().toISOString().slice(0,10);
+  const todayCost = data.sessions.filter(s => s.date === today).reduce((s, x) => s + x.cost, 0);
+  if (todayCost > 5) alerts.push({ type: 'warn', msg: `🔥 Today's spend (${fmtCurrency(todayCost)}) is unusually high.` });
+
+  if (alerts.length === 0) alerts.push({ type: 'info', msg: '✅ All good — spending is within normal range.' });
+
+  document.getElementById('alerts').innerHTML = alerts.map(a =>
+    `<div class="alert-item alert-${a.type}">${a.msg}</div>`
+  ).join('');
+}
+
+function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function openAddModal() {
+  document.getElementById('modal').classList.add('active');
+  document.getElementById('projName').focus();
+  updateProjectDatalist();
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.remove('active');
+}
+
+function updateProjectDatalist() {
+  const data = loadData();
+  const projects = [...new Set(data.sessions.map(s => s.project))];
+  document.getElementById('projList').innerHTML = projects.map(p => `<option value="${escHtml(p)}">`).join('');
+}
+
+function addSession() {
+  const project = document.getElementById('projName').value.trim();
+  const model = document.getElementById('modelName').value;
+  const inputTokens = parseInt(document.getElementById('inputTokens').value) || 0;
+  const outputTokens = parseInt(document.getElementById('outputTokens').value) || 0;
+  const costManual = document.getElementById('costManual').value;
+
+  if (!project) { alert('Please enter a project name'); return; }
+  if (!model) { alert('Please select a model'); return; }
+
+  let cost = costManual ? parseFloat(costManual) : 0;
+  if (!costManual && MODEL_PRICES[model]) {
+    const p = MODEL_PRICES[model];
+    cost = inputTokens * p.input + outputTokens * p.output;
+  }
+
+  const data = loadData();
+  data.sessions.push({
+    project, model,
+    inputTokens, outputTokens, cost,
+    date: new Date().toISOString().slice(0,10),
+    time: new Date().toISOString(),
+  });
+  saveData(data);
+  closeModal();
+  document.getElementById('projName').value = '';
+  document.getElementById('inputTokens').value = '';
+  document.getElementById('outputTokens').value = '';
+  document.getElementById('costManual').value = '';
+  renderAll();
+}
+
+function exportData() {
+  const data = loadData();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'agentspend-export.json'; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function resetData() {
+  if (confirm('Delete all data? This cannot be undone.')) {
+    localStorage.removeItem('agentspend_data');
+    renderAll();
+  }
+}
+
+document.getElementById('modelName').addEventListener('change', function() {
+  document.getElementById('costManual').placeholder = MODEL_PRICES[this.value] ? 'Auto-calculated' : 'Enter manually';
+});
+
+document.getElementById('modal').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeModal();
+});
+
+if (!localStorage.getItem('agentspend_data')) {
+  const demo = { sessions: [], budget: 50 };
+  const today = new Date();
+  const projects = ['saas-backend', 'landing-page', 'code-review-bot', 'data-pipeline'];
+  const models = ['claude-sonnet-4.6','gpt-5.3-codex','claude-haiku-4.5','gpt-5-mini','claude-fable-5','gemini-2.5-flash'];
+  const prices = {
+    'claude-sonnet-4.6': {i:3/1e6, o:15/1e6},
+    'gpt-5.3-codex': {i:1.75/1e6, o:14/1e6},
+    'claude-haiku-4.5': {i:1/1e6, o:5/1e6},
+    'gpt-5-mini': {i:0.25/1e6, o:2/1e6},
+    'claude-fable-5': {i:5/1e6, o:25/1e6},
+    'gemini-2.5-flash': {i:0.3/1e6, o:2.5/1e6},
+  };
+  for (let i = 0; i < 25; i++) {
+    const d = new Date(today - Math.floor(Math.random()*7)*86400000);
+    const model = models[Math.floor(Math.random()*models.length)];
+    const inp = Math.floor(Math.random()*15000)+500;
+    const out = Math.floor(Math.random()*4000)+200;
+    const p = prices[model];
+    demo.sessions.push({
+      project: projects[Math.floor(Math.random()*projects.length)],
+      model, inputTokens: inp, outputTokens: out,
+      cost: inp*p.i + out*p.o,
+      date: d.toISOString().slice(0,10),
+      time: d.toISOString(),
+    });
+  }
+  saveData(demo);
+}
+
+renderAll();
+</script>
+</body>
+</html>
